@@ -1,0 +1,101 @@
+library(openxlsx)
+library(dplyr)
+
+positions = c("GK", "DEF", "MID", "FWD")
+data1 = read.csv("players_raw.csv")
+data2 =  read.xlsx("De gea.xlsx", sheet = 1)
+data3 = read.csv("master_team_list.csv")
+data3 = data3[data3$season == "2017-18", ]
+data4 = data.frame(opponent_team = data3$team, opp_team_name = data3$team_name)
+
+data1 = data1[, c("first_name", "second_name", "element_type", "team", "team_code")]
+data1$name = paste(data1$first_name, data1$second_name, sep = "_")
+
+data1$element_type[which(data1$element_type == 1)] = positions[1]
+data1$element_type[which(data1$element_type == 2)] = positions[2]
+data1$element_type[which(data1$element_type == 3)] = positions[3]
+data1$element_type[which(data1$element_type == 4)] = positions[4]
+
+data5 = merge(x = data1, y = data3, by = "team")
+data5 = data5[, c("name", "element_type", "season", "team_name")]
+
+data6 = merge(x = data2, y = data5, by = "name")
+data7 = merge(x = data6, y = data4, by = "opponent_team")
+
+data7 = data7 %>% select(season, name, element_type, GW, team_name, opp_team_name, team_h_score, team_a_score, everything()) %>% arrange(GW, team_name, opp_team_name, element)
+data7$kickoff_time = as.Date(data7$kickoff_time)
+
+data8 = read.xlsx("EPL 2017-18.xlsx", sheet = 1)
+data8$Date = as.Date(convertToDate(data8$Date), format = "%Y-%b-%d")
+data8 = data8[, c(2, 3, 5, 6)]
+
+DGWH = DGWA = data.frame()
+
+for (j in 1:nrow(data7)) {
+    tuple0 = data7[j, c(4:6, 58, 33)]
+    tuple1 = rep(NA, 3)
+    
+    # sort according to GW, home = team, away = opp team((accurate))
+    if(tuple0$was_home == T){
+        tuple1 = tuple0[c(1:3, 5)]
+        index = which(data8$Round.Number == as.numeric(tuple1[1]) &
+                          data8$Away.Team == as.character(tuple1[3]))
+        
+        # SGW detection
+        if(length(index) == 1){
+            data7[j, "team_name"] = data8[index, "Home.Team"]
+        }
+        
+        # DGW detection
+        else if(length(index) > 1){
+            games = data8[index, ]
+            game = which(as.character(games$Date) == as.matrix(tuple1[4])[1, 1])
+            data7[j, "team_name"] = games[game, "Home.Team"]
+            DGWH = rbind(DGWH, data8[index, ])
+        }
+        
+        # error detection
+        else if(length(index) == 0){
+            print(j)
+            print("Hold up")
+        }
+    }
+    
+    # sort according to GW, home = opp team(accurate), away = team
+    else{
+        tuple1 = tuple0[c(1, 3, 2, 5)]
+        index = which(data8$Round.Number == as.numeric(tuple1[1]) &
+                          data8$Home.Team == as.character(tuple1[2]))
+        
+        # SGW detection
+        if(length(index) == 1){
+            data7[j, "team_name"] = data8[index,  "Away.Team"]
+        }
+        
+        # DGW detection
+        else if(length(index) > 1){
+            games = data8[index, ]
+            game = which(as.character(games$Date) == as.matrix(tuple1[4])[1, 1])
+            data7[j, "team_name"] = games[game,  "Away.Team"]
+            DGWA = rbind(DGWA,  data8[index, ])
+        }
+        
+        # error detection
+        else if(length(index) == 0){
+            print(j)
+            print("Hold up")
+            break
+        }
+    }
+}
+
+unique.data.frame(DGWA)
+unique.data.frame(DGWH)
+
+data9 = data7 %>% select(season, name, element_type, GW, team_name, opp_team_name, team_h_score, team_a_score, everything()) %>% arrange(GW, team_name, opp_team_name, element)
+
+# split cols
+dummy = matrix(unlist(strsplit(x = data9$name, split = "_")), ncol = 2, byrow = T)
+data9$name = paste(dummy[, 1], dummy[, 2], sep = " ")
+write.xlsx(data9, "DDG.xlsx")
+
